@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block title %}Learning Plan - Book Learning App{% endblock %}
+
+{% block content %}
+<div class="learning-plan-section">
+    <div class="book-header">
+        <h2 id="bookTitle">{{ book_info.title if book_info else 'No Book Loaded' }}</h2>
+        {% if book_info %}
+        <p class="book-meta">
+            {{ book_info.word_count }} words
+            {% if book_info.metadata.author %}
+            • by {{ book_info.metadata.author }}
+            {% endif %}
+        </p>
+        {% endif %}
+    </div>
+
+    {% if topics %}
+    <div class="topics-container">
+        <h3>Learning Topics</h3>
+        <p class="subtitle">Work through these topics to master the key concepts</p>
+
+        <div class="topics-list">
+            {% for topic in topics %}
+            <div class="topic-card {% if topic.completed %}completed{% endif %}" data-topic="{{ topic.topic_number }}">
+                <div class="topic-header">
+                    <span class="topic-number">{{ topic.topic_number }}</span>
+                    <span class="importance-badge {{ topic.importance|lower }}">
+                        {{ topic.importance }}
+                    </span>
+                </div>
+                <h4>{{ topic.title }}</h4>
+                <p class="topic-description">{{ topic.description }}</p>
+                <div class="topic-actions">
+                    <a href="/study/{{ topic.topic_number }}" class="btn-primary">
+                        {% if topic.completed %}Review{% else %}Start Learning{% endif %}
+                    </a>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <p>No learning plan found. Please upload a book first.</p>
+        <a href="/" class="btn-primary">Upload Book</a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

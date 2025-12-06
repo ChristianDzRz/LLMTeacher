@@ -1,0 +1,17 @@
+[project]
+name = "book-learning-app"
+version = "1.0.0"
+description = "Conversational AI learning platform for books"
+requires-python = ">=3.8"
+dependencies = [
+    "flask>=3.0.0",
+    "pypdf2>=3.0.1",
+    "pdfplumber>=0.10.3",
+    "ebooklib>=0.18",
+    "requests>=2.31.0",
+    "python-dotenv>=1.0.0",
+    "werkzeug>=3.0.1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]

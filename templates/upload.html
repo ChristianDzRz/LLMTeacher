@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block title %}Upload Book - Book Learning App{% endblock %}
+
+{% block content %}
+<div class="upload-section">
+    <h2>Upload Your Book</h2>
+    <p>Upload a PDF or EPUB file to create a personalized learning plan</p>
+
+    <div class="upload-box">
+        <form id="uploadForm" enctype="multipart/form-data">
+            <div class="file-input-wrapper">
+                <input type="file" id="bookFile" name="file" accept=".pdf,.epub" required>
+                <label for="bookFile" class="file-input-label">
+                    <span class="file-icon">📄</span>
+                    <span class="file-text">Choose a book (PDF or EPUB)</span>
+                </label>
+            </div>
+
+            <button type="submit" class="btn-primary">Upload and Process</button>
+        </form>
+    </div>
+
+    <div id="uploadStatus" class="status-message" style="display: none;">
+        <div class="loader"></div>
+        <p id="statusText">Processing your book...</p>
+    </div>
+
+    <div id="uploadError" class="error-message" style="display: none;"></div>
+</div>
+
+<div class="info-section">
+    <h3>How It Works</h3>
+    <ol>
+        <li><strong>Upload:</strong> Select a PDF or EPUB book</li>
+        <li><strong>Analysis:</strong> AI extracts key learning topics</li>
+        <li><strong>Study:</strong> Learn through conversational tutoring</li>
+        <li><strong>Practice:</strong> Reinforce with custom exercises</li>
+    </ol>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const fileInput = document.getElementById('bookFile');
+    const file = fileInput.files[0];
+
+    if (!file) {
+        showError('Please select a file');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    // Show loading status
+    document.getElementById('uploadStatus').style.display = 'block';
+    document.getElementById('uploadError').style.display = 'none';
+    document.getElementById('statusText').textContent = 'Uploading and processing book...';
+
+    try {
+        const response = await fetch('/upload', {
+            method: 'POST',
+            body: formData
+        });
+
+        // Clone the response so we can read it multiple times if needed
+        const responseClone = response.clone();
+
+        let data;
+        try {
+            data = await response.json();
+        } catch (jsonError) {
+            // If response isn't JSON, try to get text from the clone
+            try {
+                const text = await responseClone.text();
+                showError('Server error: ' + (text.substring(0, 200) || 'Unknown error'));
+            } catch (textError) {
+                showError('Server error: Unable to read response');
+            }
+            return;
+        }
+
+        if (response.ok) {
+            document.getElementById('statusText').textContent = 'Book processed successfully! Redirecting...';
+            setTimeout(() => {
+                window.location.href = '/learning-plan';
+            }, 1500);
+        } else {
+            showError(data.error || 'Upload failed');
+        }
+    } catch (error) {
+        showError('Network error: ' + error.message);
+    }
+});
+
+function showError(message) {
+    const errorDiv = document.getElementById('uploadError');
+    errorDiv.textContent = message;
+    errorDiv.style.display = 'block';
+    document.getElementById('uploadStatus').style.display = 'none';
+}
+
+// File input visual feedback
+document.getElementById('bookFile').addEventListener('change', (e) => {
+    const fileName = e.target.files[0]?.name || 'Choose a book (PDF or EPUB)';
+    document.querySelector('.file-text').textContent = fileName;
+});
+</script>
+{% endblock %}

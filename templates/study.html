@@ -1,0 +1,253 @@
+{% extends "base.html" %}
+
+{% block title %}Study: {{ topic.title if topic else 'Topic' }} - Book Learning App{% endblock %}
+
+{% block content %}
+<div class="study-section">
+    <div class="topic-header-bar">
+        <a href="/learning-plan" class="back-link">← Back to Learning Plan</a>
+        <div class="topic-info">
+            <span class="topic-number-badge">Topic {{ topic_id }}</span>
+            <h2 id="topicTitle">{{ topic.title if topic else 'Loading...' }}</h2>
+        </div>
+    </div>
+
+    <div class="study-container">
+        <!-- Chat Interface -->
+        <div class="chat-panel">
+            <div class="chat-header">
+                <h3>Conversation</h3>
+                <button id="clearChat" class="btn-secondary">Clear</button>
+            </div>
+
+            <div id="chatMessages" class="chat-messages">
+                <div class="message ai-message">
+                    <div class="message-content">
+                        <p>Welcome! I'm your AI tutor. Let's explore this topic together.</p>
+                        <p>What would you like to know about <strong>{{ topic.title if topic else 'this topic' }}</strong>?</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="chat-input-container">
+                <textarea id="userInput" placeholder="Ask a question or request an explanation..." rows="3"></textarea>
+                <button id="sendMessage" class="btn-primary">Send</button>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-section">
+                <h3>Topic Info</h3>
+                <p class="topic-description">{{ topic.description if topic else '' }}</p>
+            </div>
+
+            <div class="sidebar-section">
+                <h3>Actions</h3>
+                <button id="generateExercises" class="btn-secondary btn-full">
+                    Generate Exercises
+                </button>
+                <button id="markComplete" class="btn-secondary btn-full">
+                    Mark as Complete
+                </button>
+            </div>
+
+            <div id="exercisesPanel" class="sidebar-section" style="display: none;">
+                <h3>Exercises</h3>
+                <div id="exercisesList"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Exercise Modal -->
+<div id="exerciseModal" class="modal" style="display: none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Exercise <span id="exerciseNumber"></span></h3>
+            <button class="close-modal">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p id="exerciseQuestion"></p>
+            <p class="hint" id="exerciseHint" style="display: none;"></p>
+            <textarea id="exerciseAnswer" placeholder="Your answer..." rows="5"></textarea>
+        </div>
+        <div class="modal-footer">
+            <button id="submitAnswer" class="btn-primary">Submit Answer</button>
+            <button class="btn-secondary close-modal">Close</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const topicId = {{ topic_id }};
+let conversationHistory = [];
+let currentExercises = [];
+
+// Send message
+document.getElementById('sendMessage').addEventListener('click', sendMessage);
+document.getElementById('userInput').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+    }
+});
+
+async function sendMessage() {
+    const input = document.getElementById('userInput');
+    const message = input.value.trim();
+
+    if (!message) return;
+
+    // Add user message to chat
+    addMessage(message, 'user');
+    input.value = '';
+
+    // Show loading indicator
+    const loadingId = addMessage('Thinking...', 'ai', true);
+
+    try {
+        const response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                topic_id: topicId,
+                message: message,
+                history: conversationHistory
+            })
+        });
+
+        const data = await response.json();
+
+        // Remove loading indicator
+        document.getElementById(loadingId).remove();
+
+        // Add AI response
+        addMessage(data.response, 'ai');
+
+        // Update history
+        conversationHistory.push({role: 'user', content: message});
+        conversationHistory.push({role: 'assistant', content: data.response});
+
+    } catch (error) {
+        document.getElementById(loadingId).remove();
+        addMessage('Sorry, there was an error. Please try again.', 'ai error');
+    }
+}
+
+function addMessage(content, type, isLoading = false) {
+    const messagesDiv = document.getElementById('chatMessages');
+    const messageDiv = document.createElement('div');
+    const id = 'msg-' + Date.now();
+
+    messageDiv.id = id;
+    messageDiv.className = `message ${type}-message ${isLoading ? 'loading' : ''}`;
+    messageDiv.innerHTML = `<div class="message-content"><p>${content}</p></div>`;
+
+    messagesDiv.appendChild(messageDiv);
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+    return id;
+}
+
+// Clear chat
+document.getElementById('clearChat').addEventListener('click', () => {
+    if (confirm('Clear conversation history?')) {
+        const messagesDiv = document.getElementById('chatMessages');
+        messagesDiv.innerHTML = `
+            <div class="message ai-message">
+                <div class="message-content">
+                    <p>Conversation cleared. What would you like to learn about?</p>
+                </div>
+            </div>
+        `;
+        conversationHistory = [];
+    }
+});
+
+// Generate exercises
+document.getElementById('generateExercises').addEventListener('click', async () => {
+    const button = document.getElementById('generateExercises');
+    button.disabled = true;
+    button.textContent = 'Generating...';
+
+    try {
+        const response = await fetch(`/api/generate-exercises/${topicId}`, {
+            method: 'POST'
+        });
+
+        const data = await response.json();
+        currentExercises = data.exercises;
+
+        displayExercises(currentExercises);
+
+        button.textContent = 'Regenerate Exercises';
+    } catch (error) {
+        alert('Failed to generate exercises');
+    } finally {
+        button.disabled = false;
+    }
+});
+
+function displayExercises(exercises) {
+    const panel = document.getElementById('exercisesPanel');
+    const list = document.getElementById('exercisesList');
+
+    list.innerHTML = exercises.map((ex, i) => `
+        <div class="exercise-item" data-index="${i}">
+            <h4>Exercise ${ex.exercise_number}</h4>
+            <p class="exercise-type">${ex.type}</p>
+            <button class="btn-secondary btn-small" onclick="openExercise(${i})">
+                Start
+            </button>
+        </div>
+    `).join('');
+
+    panel.style.display = 'block';
+}
+
+function openExercise(index) {
+    const exercise = currentExercises[index];
+
+    document.getElementById('exerciseNumber').textContent = exercise.exercise_number;
+    document.getElementById('exerciseQuestion').textContent = exercise.question;
+
+    const hintElement = document.getElementById('exerciseHint');
+    if (exercise.hint) {
+        hintElement.textContent = 'Hint: ' + exercise.hint;
+        hintElement.style.display = 'block';
+    } else {
+        hintElement.style.display = 'none';
+    }
+
+    document.getElementById('exerciseAnswer').value = '';
+    document.getElementById('exerciseModal').style.display = 'flex';
+}
+
+// Modal controls
+document.querySelectorAll('.close-modal').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.getElementById('exerciseModal').style.display = 'none';
+    });
+});
+
+document.getElementById('submitAnswer').addEventListener('click', () => {
+    const answer = document.getElementById('exerciseAnswer').value;
+    if (answer.trim()) {
+        alert('Answer submitted! (Validation will be implemented)');
+        document.getElementById('exerciseModal').style.display = 'none';
+    }
+});
+
+// Mark complete
+document.getElementById('markComplete').addEventListener('click', () => {
+    if (confirm('Mark this topic as complete?')) {
+        // TODO: Implement progress tracking
+        alert('Topic marked as complete!');
+        window.location.href = '/learning-plan';
+    }
+});
+</script>
+{% endblock %}

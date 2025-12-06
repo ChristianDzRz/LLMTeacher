@@ -1,0 +1,16 @@
+# Web Framework
+Flask==3.0.0
+
+# Document Processing
+PyPDF2==3.0.1
+pdfplumber==0.10.3
+EbookLib==0.18
+
+# LLM Integration
+requests==2.31.0
+
+# Data Storage
+python-dotenv==1.0.0
+
+# Utilities
+werkzeug==3.0.1
