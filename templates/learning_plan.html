@@ -1,41 +1,70 @@
-{% extends "base.html" %}
-
-{% block title %}Learning Plan - Book Learning App{% endblock %}
-
-{% block content %}
+{% extends "base.html" %} {% block title %}Learning Plan - Book Learning App{%
+endblock %} {% block content %}
 <div class="learning-plan-section">
     <div class="book-header">
-        <h2 id="bookTitle">{{ book_info.title if book_info else 'No Book Loaded' }}</h2>
+        <h2 id="bookTitle">
+            {{ book_info.title if book_info else 'No Book Loaded' }}
+        </h2>
         {% if book_info %}
         <p class="book-meta">
-            {{ book_info.word_count }} words
-            {% if book_info.metadata.author %}
-            • by {{ book_info.metadata.author }}
-            {% endif %}
+            {{ book_info.word_count }} words • {{ book_info.chapter_count }}
+            chapters {% if book_info.metadata.author %} • by {{
+            book_info.metadata.author }} {% endif %}
         </p>
-        {% endif %}
+        {% if book_summary %}
+        <p
+            class="book-summary"
+            style="margin-top: 1rem; font-style: italic; color: #555"
+        >
+            {{ book_summary }}
+        </p>
+        {% endif %} {% endif %}
     </div>
 
-    {% if topics %}
+    {% if chapters %}
     <div class="topics-container">
-        <h3>Learning Topics</h3>
-        <p class="subtitle">Work through these topics to master the key concepts</p>
+        <h3>Chapters</h3>
+        <p class="subtitle">Explore each chapter to learn the key concepts</p>
 
         <div class="topics-list">
-            {% for topic in topics %}
-            <div class="topic-card {% if topic.completed %}completed{% endif %}" data-topic="{{ topic.topic_number }}">
+            {% for chapter in chapters %}
+            <div
+                class="topic-card chapter-card"
+                data-chapter="{{ chapter.chapter_number }}"
+            >
                 <div class="topic-header">
-                    <span class="topic-number">{{ topic.topic_number }}</span>
-                    <span class="importance-badge {{ topic.importance|lower }}">
-                        {{ topic.importance }}
-                    </span>
+                    <span class="topic-number"
+                        >{{ chapter.chapter_number }}</span
+                    >
                 </div>
-                <h4>{{ topic.title }}</h4>
-                <p class="topic-description">{{ topic.description }}</p>
+                <h4>{{ chapter.title }}</h4>
+                <p class="topic-description">{{ chapter.brief_description }}</p>
+                {% if chapter.key_concepts %}
+                <div class="key-concepts" style="margin-top: 0.75rem">
+                    <strong style="color: #4a90e2; font-size: 0.9rem"
+                        >Key Concepts:</strong
+                    >
+                    <ul
+                        style="
+                            margin: 0.5rem 0;
+                            padding-left: 1.5rem;
+                            font-size: 0.9rem;
+                        "
+                    >
+                        {% for concept in chapter.key_concepts[:5] %}
+                        <li>{{ concept }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
                 <div class="topic-actions">
-                    <a href="/study/{{ topic.topic_number }}" class="btn-primary">
-                        {% if topic.completed %}Review{% else %}Start Learning{% endif %}
-                    </a>
+                    <button
+                        class="btn-primary view-chapter-btn"
+                        data-chapter="{{ chapter.chapter_number }}"
+                        data-book="{{ current_book }}"
+                    >
+                        View Topics
+                    </button>
                 </div>
             </div>
             {% endfor %}
@@ -48,4 +77,105 @@
     </div>
     {% endif %}
 </div>
-{% endblock %}
+
+<!-- Chapter Topics Modal -->
+<div id="chapterModal" class="modal" style="display: none">
+    <div class="modal-content" style="max-width: 800px">
+        <div class="modal-header">
+            <h3 id="chapterModalTitle">Chapter Topics</h3>
+            <button class="close-modal">&times;</button>
+        </div>
+        <div class="modal-body" id="chapterModalBody">
+            <div id="chapterTopicsList"></div>
+        </div>
+    </div>
+</div>
+
+{% block extra_js %}
+<script>
+    // Handle view chapter topics
+    document.querySelectorAll(".view-chapter-btn").forEach((btn) => {
+        btn.addEventListener("click", async function () {
+            const chapterNumber = this.dataset.chapter;
+            const bookFilename = this.dataset.book;
+
+            try {
+                const url = `/api/chapter/${chapterNumber}${bookFilename ? "?book=" + encodeURIComponent(bookFilename) : ""}`;
+                const response = await fetch(url);
+                const chapterData = await response.json();
+
+                if (response.ok) {
+                    showChapterTopics(chapterData, bookFilename);
+                } else {
+                    alert(
+                        "Could not load chapter topics: " + chapterData.error,
+                    );
+                }
+            } catch (error) {
+                console.error("Error loading chapter:", error);
+                alert("Failed to load chapter topics");
+            }
+        });
+    });
+
+    function showChapterTopics(chapterData, bookFilename) {
+        const modal = document.getElementById("chapterModal");
+        const title = document.getElementById("chapterModalTitle");
+        const body = document.getElementById("chapterTopicsList");
+
+        title.textContent = `Chapter ${chapterData.chapter_number}: ${chapterData.title}`;
+
+        const topics = chapterData.topics || [];
+
+        body.innerHTML = topics
+            .map(
+                (topic) => `
+            <div class="topic-card" style="margin-bottom: 1rem;">
+                <div class="topic-header">
+                    <span class="topic-number">${topic.topic_number}</span>
+                    <span class="importance-badge ${topic.importance.toLowerCase()}">${topic.importance}</span>
+                </div>
+                <h4>${topic.title}</h4>
+                <p class="topic-description">${topic.description}</p>
+                ${
+                    topic.key_points && topic.key_points.length > 0
+                        ? `
+                    <div style="margin-top: 0.5rem;">
+                        <strong style="color: #4a90e2; font-size: 0.9rem;">Key Points:</strong>
+                        <ul style="margin: 0.5rem 0; padding-left: 1.5rem; font-size: 0.9rem;">
+                            ${topic.key_points.map((point) => `<li>${point}</li>`).join("")}
+                        </ul>
+                    </div>
+                `
+                        : ""
+                }
+                <div class="topic-actions" style="margin-top: 0.75rem;">
+                    <a href="/study/chapter/${chapterData.chapter_number}/topic/${topic.topic_number}${bookFilename ? "?book=" + encodeURIComponent(bookFilename) : ""}"
+                       class="btn-primary">
+                        Start Learning
+                    </a>
+                </div>
+            </div>
+        `,
+            )
+            .join("");
+
+        modal.style.display = "flex";
+    }
+
+    // Close modal
+    document.querySelectorAll(".close-modal").forEach((btn) => {
+        btn.addEventListener("click", () => {
+            document.getElementById("chapterModal").style.display = "none";
+        });
+    });
+
+    // Close modal on outside click
+    window.addEventListener("click", (e) => {
+        const modal = document.getElementById("chapterModal");
+        if (e.target === modal) {
+            modal.style.display = "none";
+        }
+    });
+</script>
+{% endblock %} {% endblock %}

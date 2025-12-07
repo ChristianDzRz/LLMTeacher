@@ -1,14 +1,24 @@
-{% extends "base.html" %}
-
-{% block title %}Study: {{ topic.title if topic else 'Topic' }} - Book Learning App{% endblock %}
-
-{% block content %}
+{% extends "base.html" %} {% block title %}Study: {{ topic.title if topic else
+'Topic' }} - Book Learning App{% endblock %} {% block content %}
 <div class="study-section">
     <div class="topic-header-bar">
-        <a href="/learning-plan" class="back-link">← Back to Learning Plan</a>
+        <a
+            href="/learning-plan{% if book_filename %}?book={{ book_filename }}{% endif %}"
+            class="back-link"
+            >← Back to Learning Plan</a
+        >
         <div class="topic-info">
-            <span class="topic-number-badge">Topic {{ topic_id }}</span>
-            <h2 id="topicTitle">{{ topic.title if topic else 'Loading...' }}</h2>
+            <span class="topic-number-badge"
+                >Ch {{ chapter_number }} • Topic {{ topic_number }}</span
+            >
+            <h2 id="topicTitle">
+                {{ topic.title if topic else 'Loading...' }}
+            </h2>
+            {% if chapter_title %}
+            <p style="color: #666; font-size: 0.9rem; margin-top: 0.25rem">
+                {{ chapter_title }}
+            </p>
+            {% endif %}
         </div>
     </div>
 
@@ -23,14 +33,46 @@
             <div id="chatMessages" class="chat-messages">
                 <div class="message ai-message">
                     <div class="message-content">
-                        <p>Welcome! I'm your AI tutor. Let's explore this topic together.</p>
-                        <p>What would you like to know about <strong>{{ topic.title if topic else 'this topic' }}</strong>?</p>
+                        <h3>{{ topic.title if topic else 'Topic' }}</h3>
+                        <p>
+                            <strong>Chapter {{ chapter_number }}:</strong> {{
+                            chapter_title }}
+                        </p>
+
+                        {% if topic and topic.description %}
+                        <p>{{ topic.description }}</p>
+                        {% endif %} {% if topic and topic.key_points %}
+                        <p><strong>In this topic, we'll cover:</strong></p>
+                        <ul>
+                            {% for point in topic.key_points %}
+                            <li>{{ point }}</li>
+                            {% endfor %}
+                        </ul>
+                        {% endif %} {% if topic and
+                        topic.suggested_search_queries %}
+                        <p><strong>Optional research topics:</strong></p>
+                        <ul>
+                            {% for query in topic.suggested_search_queries %}
+                            <li>{{ query }}</li>
+                            {% endfor %}
+                        </ul>
+                        {% endif %}
+
+                        <p>
+                            <strong>Where would you like to start?</strong> Feel
+                            free to ask about any of the key points above, or
+                            ask your own questions about this topic.
+                        </p>
                     </div>
                 </div>
             </div>
 
             <div class="chat-input-container">
-                <textarea id="userInput" placeholder="Ask a question or request an explanation..." rows="3"></textarea>
+                <textarea
+                    id="userInput"
+                    placeholder="Ask a question or request an explanation..."
+                    rows="3"
+                ></textarea>
                 <button id="sendMessage" class="btn-primary">Send</button>
             </div>
         </div>
@@ -39,7 +81,108 @@
         <div class="sidebar">
             <div class="sidebar-section">
                 <h3>Topic Info</h3>
-                <p class="topic-description">{{ topic.description if topic else '' }}</p>
+                <p class="topic-description">
+                    {{ topic.description if topic else '' }}
+                </p>
+            </div>
+
+            {% if topic and topic.key_points %}
+            <div class="sidebar-section">
+                <h3>What You'll Learn</h3>
+                <div id="keyPointsList">
+                    {% for point in topic.key_points %}
+                    <div class="key-point-item" data-point="{{ point }}">
+                        <span class="key-point-bullet">•</span>
+                        <span class="key-point-text">{{ point }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+                <p
+                    style="
+                        font-size: 0.85rem;
+                        color: var(--text-muted);
+                        margin-top: 1rem;
+                        font-style: italic;
+                    "
+                >
+                    Click on any point to learn about it
+                </p>
+            </div>
+            {% endif %}
+
+            <div class="sidebar-section">
+                <h3>Chat Model</h3>
+                <select id="chatModel" class="model-select">
+                    <optgroup label="LM Studio (localhost:1234)">
+                        <option value="gpt-4o-mini">
+                            GPT-4o Mini - Default
+                        </option>
+                        <option value="gpt-4o">GPT-4o</option>
+                        <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                        <option value="llama-3.1-8b-instruct">
+                            Llama 3.1 8B Instruct
+                        </option>
+                        <option value="phi-3-medium-instruct">
+                            Phi 3 Medium Instruct
+                        </option>
+                    </optgroup>
+                    <optgroup label="Ollama (localhost:11434)">
+                        <option value="llama3.2-gpu">
+                            Llama 3.2 GPU (3.2B)
+                        </option>
+                        <option value="llama3.2:3b">Llama 3.2 (3B)</option>
+                        <option value="llama3:8b">Llama 3 (8B)</option>
+                        <option value="llama3:latest">
+                            Llama 3 Latest (8B)
+                        </option>
+                    </optgroup>
+                    <option value="custom">Custom Model</option>
+                </select>
+                <input
+                    type="text"
+                    id="customChatModel"
+                    placeholder="Enter model name"
+                    style="
+                        display: none;
+                        margin-top: 8px;
+                        width: 100%;
+                        padding: 8px;
+                        border: 1px solid #ddd;
+                        border-radius: 4px;
+                    "
+                />
+                <p style="font-size: 0.85rem; color: #666; margin-top: 0.5rem">
+                    LM Studio models use OpenAI format, Ollama uses direct model
+                    names.
+                </p>
+            </div>
+
+            <div class="sidebar-section">
+                <h3>Navigation</h3>
+                {% if has_prev_topic %}
+                <a
+                    href="/study/chapter/{{ chapter_number }}/topic/{{ prev_topic_num }}{% if book_filename %}?book={{ book_filename }}{% endif %}"
+                    class="btn-secondary btn-full"
+                >
+                    ← Previous Topic
+                </a>
+                {% endif %} {% if has_next_topic %}
+                <a
+                    href="/study/chapter/{{ chapter_number }}/topic/{{ next_topic_num }}{% if book_filename %}?book={{ book_filename }}{% endif %}"
+                    class="btn-primary btn-full"
+                >
+                    Next Topic →
+                </a>
+                {% elif has_next_chapter %}
+                <button
+                    id="nextChapterBtn"
+                    class="btn-primary btn-full"
+                    data-next-chapter="{{ next_chapter_num }}"
+                    data-book="{{ book_filename }}"
+                >
+                    Next Chapter →
+                </button>
+                {% endif %}
             </div>
 
             <div class="sidebar-section">
@@ -52,7 +195,11 @@
                 </button>
             </div>
 
-            <div id="exercisesPanel" class="sidebar-section" style="display: none;">
+            <div
+                id="exercisesPanel"
+                class="sidebar-section"
+                style="display: none"
+            >
                 <h3>Exercises</h3>
                 <div id="exercisesList"></div>
             </div>
@@ -61,100 +208,213 @@
 </div>
 
 <!-- Exercise Modal -->
-<div id="exerciseModal" class="modal" style="display: none;">
+<div id="exerciseModal" class="modal" style="display: none">
     <div class="modal-content">
         <div class="modal-header">
             <h3>Exercise <span id="exerciseNumber"></span></h3>
             <button class="close-modal">&times;</button>
         </div>
-        <div class="modal-body">
-            <p id="exerciseQuestion"></p>
-            <p class="hint" id="exerciseHint" style="display: none;"></p>
-            <textarea id="exerciseAnswer" placeholder="Your answer..." rows="5"></textarea>
+        <div class="modal-body" id="exerciseModalBody">
+            <div id="exerciseInputSection">
+                <p id="exerciseQuestion"></p>
+                <p class="hint" id="exerciseHint" style="display: none"></p>
+                <textarea
+                    id="exerciseAnswer"
+                    placeholder="Your answer..."
+                    rows="5"
+                ></textarea>
+            </div>
+            <div id="exerciseSolutionSection" style="display: none">
+                <div class="solution-box">
+                    <div id="feedbackMessage" style="margin-bottom: 1rem"></div>
+                    <h4>Full Solution:</h4>
+                    <div id="sampleSolution"></div>
+                </div>
+            </div>
         </div>
         <div class="modal-footer">
             <button id="submitAnswer" class="btn-primary">Submit Answer</button>
+            <button
+                id="showSolution"
+                class="btn-secondary"
+                style="display: none"
+            >
+                Show Solution
+            </button>
             <button class="btn-secondary close-modal">Close</button>
         </div>
     </div>
 </div>
-{% endblock %}
-
-{% block extra_js %}
+{% endblock %} {% block extra_js %}
 <script>
-const topicId = {{ topic_id }};
-let conversationHistory = [];
-let currentExercises = [];
+    const chapterNumber = {{ chapter_number }};
+    const topicNumber = {{ topic_number }};
+    const bookFilename = {{ book_filename|tojson if book_filename else 'null' }};
+    let conversationHistory = [];
+    let currentExercises = [];
 
-// Send message
-document.getElementById('sendMessage').addEventListener('click', sendMessage);
-document.getElementById('userInput').addEventListener('keypress', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        sendMessage();
+    // Load available models dynamically
+    async function loadAvailableModels() {
+        try {
+            const response = await fetch('/api/available-models');
+            const data = await response.json();
+
+            const chatModelSelect = document.getElementById('chatModel');
+            chatModelSelect.innerHTML = '';
+
+            // Add LM Studio models if available
+            if (data.lm_studio_available && data.lm_studio.length > 0) {
+                const lmGroup = document.createElement('optgroup');
+                lmGroup.label = 'LM Studio (localhost:1234)';
+
+                data.lm_studio.forEach((model, index) => {
+                    const option = document.createElement('option');
+                    option.value = model.id;
+                    option.textContent = `${model.name}${index === 0 ? ' - Default' : ''}`;
+                    lmGroup.appendChild(option);
+                });
+
+                chatModelSelect.appendChild(lmGroup);
+            }
+
+            // Add Ollama models if available
+            if (data.ollama_available && data.ollama.length > 0) {
+                const ollamaGroup = document.createElement('optgroup');
+                ollamaGroup.label = 'Ollama (localhost:11434)';
+
+                data.ollama.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model.name;
+                    const paramSize = model.parameter_size ? ` (${model.parameter_size})` : '';
+                    option.textContent = `${model.name}${paramSize}`;
+                    ollamaGroup.appendChild(option);
+                });
+
+                chatModelSelect.appendChild(ollamaGroup);
+            }
+
+            // Add custom option
+            const customOption = document.createElement('option');
+            customOption.value = 'custom';
+            customOption.textContent = 'Custom Model';
+            chatModelSelect.appendChild(customOption);
+
+            // Show availability message
+            const hint = chatModelSelect.parentElement.querySelector('p');
+            if (hint) {
+                let availMsg = [];
+                if (data.lm_studio_available) availMsg.push('LM Studio');
+                if (data.ollama_available) availMsg.push('Ollama');
+
+                if (availMsg.length > 0) {
+                    hint.textContent = `Available: ${availMsg.join(', ')}. LM Studio uses OpenAI format, Ollama uses direct model names.`;
+                    hint.style.color = '#28a745';
+                } else {
+                    hint.textContent = 'No model servers detected. Make sure LM Studio or Ollama is running.';
+                    hint.style.color = '#dc3545';
+                }
+            }
+        } catch (error) {
+            console.error('Could not load available models:', error);
+        }
     }
-});
 
-async function sendMessage() {
-    const input = document.getElementById('userInput');
-    const message = input.value.trim();
+    loadAvailableModels();
 
-    if (!message) return;
+    // Handle custom chat model input toggle
+    document.getElementById('chatModel').addEventListener('change', function() {
+        const customInput = document.getElementById('customChatModel');
+        if (this.value === 'custom') {
+            customInput.style.display = 'block';
+        } else {
+            customInput.style.display = 'none';
+            customInput.value = '';
+        }
+    });
 
-    // Add user message to chat
-    addMessage(message, 'user');
-    input.value = '';
-
-    // Show loading indicator
-    const loadingId = addMessage('Thinking...', 'ai', true);
-
-    try {
-        const response = await fetch('/api/chat', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                topic_id: topicId,
-                message: message,
-                history: conversationHistory
-            })
-        });
-
-        const data = await response.json();
-
-        // Remove loading indicator
-        document.getElementById(loadingId).remove();
-
-        // Add AI response
-        addMessage(data.response, 'ai');
-
-        // Update history
-        conversationHistory.push({role: 'user', content: message});
-        conversationHistory.push({role: 'assistant', content: data.response});
-
-    } catch (error) {
-        document.getElementById(loadingId).remove();
-        addMessage('Sorry, there was an error. Please try again.', 'ai error');
+    // Get selected chat model
+    function getSelectedChatModel() {
+        const select = document.getElementById('chatModel');
+        if (select.value === 'custom') {
+            return document.getElementById('customChatModel').value.trim() || 'gpt-4o-mini';
+        }
+        return select.value;
     }
-}
 
-function addMessage(content, type, isLoading = false) {
-    const messagesDiv = document.getElementById('chatMessages');
-    const messageDiv = document.createElement('div');
-    const id = 'msg-' + Date.now();
+    // Send message
+    document.getElementById('sendMessage').addEventListener('click', sendMessage);
+    document.getElementById('userInput').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    });
 
-    messageDiv.id = id;
-    messageDiv.className = `message ${type}-message ${isLoading ? 'loading' : ''}`;
-    messageDiv.innerHTML = `<div class="message-content"><p>${content}</p></div>`;
+    async function sendMessage() {
+        const input = document.getElementById('userInput');
+        const message = input.value.trim();
 
-    messagesDiv.appendChild(messageDiv);
-    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        if (!message) return;
 
-    return id;
-}
+        // Add user message to chat
+        addMessage(message, 'user');
+        input.value = '';
 
-// Clear chat
-document.getElementById('clearChat').addEventListener('click', () => {
-    if (confirm('Clear conversation history?')) {
+        // Show loading indicator
+        const loadingId = addMessage('Thinking...', 'ai', true);
+
+        try {
+            const response = await fetch('/api/chat', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    chapter_number: chapterNumber,
+                    topic_number: topicNumber,
+                    message: message,
+                    model: getSelectedChatModel(),
+                    book_filename: bookFilename,
+                    history: conversationHistory
+                })
+            });
+
+            const data = await response.json();
+
+            // Remove loading indicator
+            document.getElementById(loadingId).remove();
+
+            // Add AI response
+            addMessage(data.response, 'ai');
+
+            // Update history
+            conversationHistory.push({role: 'user', content: message});
+            conversationHistory.push({role: 'assistant', content: data.response});
+
+        } catch (error) {
+            document.getElementById(loadingId).remove();
+            addMessage('Sorry, there was an error. Please try again.', 'ai error');
+        }
+    }
+
+    function addMessage(content, type, isLoading = false) {
+        const messagesDiv = document.getElementById('chatMessages');
+        const messageDiv = document.createElement('div');
+        const id = 'msg-' + Date.now();
+
+        messageDiv.id = id;
+        messageDiv.className = `message ${type}-message ${isLoading ? 'loading' : ''}`;
+
+        // Render markdown for AI messages, plain text for user messages
+        const renderedContent = (type === 'ai' && !isLoading) ? marked.parse(content) : `<p>${content}</p>`;
+        messageDiv.innerHTML = `<div class="message-content">${renderedContent}</div>`;
+
+        messagesDiv.appendChild(messageDiv);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+        return id;
+    }
+
+    // Clear chat
+    function clearChat() {
         const messagesDiv = document.getElementById('chatMessages');
         messagesDiv.innerHTML = `
             <div class="message ai-message">
@@ -165,89 +425,234 @@ document.getElementById('clearChat').addEventListener('click', () => {
         `;
         conversationHistory = [];
     }
-});
 
-// Generate exercises
-document.getElementById('generateExercises').addEventListener('click', async () => {
-    const button = document.getElementById('generateExercises');
-    button.disabled = true;
-    button.textContent = 'Generating...';
+    document.getElementById('clearChat').addEventListener('click', () => {
+        if (confirm('Clear conversation history?')) {
+            clearChat();
+        }
+    });
 
-    try {
-        const response = await fetch(`/api/generate-exercises/${topicId}`, {
-            method: 'POST'
+    // Handle key point clicks
+    document.querySelectorAll('.key-point-item').forEach(item => {
+        item.addEventListener('click', function() {
+            const point = this.dataset.point;
+
+            // Clear conversation
+            clearChat();
+
+            // Mark this key point as active
+            document.querySelectorAll('.key-point-item').forEach(p => p.classList.remove('active'));
+            this.classList.add('active');
+
+            // Auto-send a message asking about this key point
+            const question = `Please explain: ${point}`;
+
+            // Set the input and send
+            const input = document.getElementById('userInput');
+            input.value = question;
+
+            // Trigger send
+            sendMessage();
         });
+    });
 
-        const data = await response.json();
-        currentExercises = data.exercises;
+    // Generate exercises
+    document.getElementById('generateExercises').addEventListener('click', async () => {
+        const button = document.getElementById('generateExercises');
+        button.disabled = true;
+        button.textContent = 'Generating...';
 
-        displayExercises(currentExercises);
+        try {
+            const response = await fetch('/api/generate-exercises', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    chapter_number: chapterNumber,
+                    topic_number: topicNumber,
+                    book_filename: bookFilename,
+                    model: getSelectedChatModel()
+                })
+            });
 
-        button.textContent = 'Regenerate Exercises';
-    } catch (error) {
-        alert('Failed to generate exercises');
-    } finally {
-        button.disabled = false;
+            const data = await response.json();
+
+            if (response.ok && data.exercises) {
+                currentExercises = data.exercises;
+                displayExercises(currentExercises);
+                button.textContent = 'Regenerate Exercises';
+            } else {
+                alert(data.error || 'Failed to generate exercises');
+                button.textContent = 'Generate Exercises';
+            }
+        } catch (error) {
+            console.error('Exercise generation error:', error);
+            alert('Failed to generate exercises');
+            button.textContent = 'Generate Exercises';
+        } finally {
+            button.disabled = false;
+        }
+    });
+
+    function displayExercises(exercises) {
+        const panel = document.getElementById('exercisesPanel');
+        const list = document.getElementById('exercisesList');
+
+        list.innerHTML = exercises.map((ex, i) => `
+            <div class="exercise-item" data-index="${i}">
+                <h4>Exercise ${ex.exercise_number}</h4>
+                <p class="exercise-type">${ex.type}</p>
+                <button class="btn-secondary btn-small" onclick="openExercise(${i})">
+                    Start
+                </button>
+            </div>
+        `).join('');
+
+        panel.style.display = 'block';
     }
-});
 
-function displayExercises(exercises) {
-    const panel = document.getElementById('exercisesPanel');
-    const list = document.getElementById('exercisesList');
+    function openExercise(index) {
+        currentExerciseIndex = index;
+        const exercise = currentExercises[index];
 
-    list.innerHTML = exercises.map((ex, i) => `
-        <div class="exercise-item" data-index="${i}">
-            <h4>Exercise ${ex.exercise_number}</h4>
-            <p class="exercise-type">${ex.type}</p>
-            <button class="btn-secondary btn-small" onclick="openExercise(${i})">
-                Start
-            </button>
-        </div>
-    `).join('');
+        document.getElementById('exerciseNumber').textContent = exercise.exercise_number;
+        document.getElementById('exerciseQuestion').textContent = exercise.question;
 
-    panel.style.display = 'block';
-}
+        const hintElement = document.getElementById('exerciseHint');
+        if (exercise.hint) {
+            hintElement.textContent = 'Hint: ' + exercise.hint;
+            hintElement.style.display = 'block';
+        } else {
+            hintElement.style.display = 'none';
+        }
 
-function openExercise(index) {
-    const exercise = currentExercises[index];
+        // Reset modal to input section
+        document.getElementById('exerciseInputSection').style.display = 'block';
+        document.getElementById('exerciseSolutionSection').style.display = 'none';
+        document.getElementById('submitAnswer').style.display = 'inline-block';
+        document.getElementById('showSolution').style.display = 'none';
+        document.getElementById('submitAnswer').disabled = false;
+        document.getElementById('submitAnswer').textContent = 'Submit Answer';
 
-    document.getElementById('exerciseNumber').textContent = exercise.exercise_number;
-    document.getElementById('exerciseQuestion').textContent = exercise.question;
-
-    const hintElement = document.getElementById('exerciseHint');
-    if (exercise.hint) {
-        hintElement.textContent = 'Hint: ' + exercise.hint;
-        hintElement.style.display = 'block';
-    } else {
-        hintElement.style.display = 'none';
+        document.getElementById('exerciseAnswer').value = '';
+        document.getElementById('exerciseModal').style.display = 'flex';
     }
 
-    document.getElementById('exerciseAnswer').value = '';
-    document.getElementById('exerciseModal').style.display = 'flex';
-}
+    // Modal controls
+    document.querySelectorAll('.close-modal').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.getElementById('exerciseModal').style.display = 'none';
+        });
+    });
 
-// Modal controls
-document.querySelectorAll('.close-modal').forEach(btn => {
-    btn.addEventListener('click', () => {
+    let currentExerciseIndex = null;
+
+    document.getElementById('submitAnswer').addEventListener('click', async () => {
+        const answer = document.getElementById('exerciseAnswer').value;
+        if (!answer.trim()) {
+            alert('Please enter an answer');
+            return;
+        }
+
+        // Disable submit button and show loading
+        const submitBtn = document.getElementById('submitAnswer');
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Checking...';
+
+        try {
+            const exercise = currentExercises[currentExerciseIndex];
+            const response = await fetch('/api/validate-answer', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    chapter_number: chapterNumber,
+                    topic_number: topicNumber,
+                    book_filename: bookFilename,
+                    exercise: exercise,
+                    user_answer: answer,
+                    model: getSelectedChatModel()
+                })
+            });
+
+            const data = await response.json();
+
+            // Show feedback and solution
+            const feedbackMsg = document.getElementById('feedbackMessage');
+            const isCorrect = data.is_correct || false;
+
+            feedbackMsg.innerHTML = `
+                <div style="padding: 1rem; border-radius: 6px; background: ${isCorrect ? '#d4edda' : '#fff3cd'}; border: 1px solid ${isCorrect ? '#28a745' : '#ffc107'};">
+                    <h4 style="margin: 0 0 0.5rem 0; color: ${isCorrect ? '#155724' : '#856404'};">
+                        ${isCorrect ? '✓ Correct!' : '⚠ Not quite right'}
+                    </h4>
+                    <p style="margin: 0;">${data.feedback || 'Please review the solution below.'}</p>
+                </div>
+            `;
+
+            document.getElementById('sampleSolution').innerHTML = marked.parse(data.solution || data.sample_solution || 'No solution provided.');
+
+            // Hide input section and show solution
+            document.getElementById('exerciseInputSection').style.display = 'none';
+            document.getElementById('exerciseSolutionSection').style.display = 'block';
+
+            // Show solution button and hide submit
+            document.getElementById('submitAnswer').style.display = 'none';
+            document.getElementById('showSolution').style.display = 'inline-block';
+
+        } catch (error) {
+            console.error('Error validating answer:', error);
+            alert('Error validating answer. Please try again.');
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Submit Answer';
+        }
+    });
+
+    document.getElementById('showSolution').addEventListener('click', () => {
+        // Solution is already visible, just close the modal
         document.getElementById('exerciseModal').style.display = 'none';
     });
-});
 
-document.getElementById('submitAnswer').addEventListener('click', () => {
-    const answer = document.getElementById('exerciseAnswer').value;
-    if (answer.trim()) {
-        alert('Answer submitted! (Validation will be implemented)');
-        document.getElementById('exerciseModal').style.display = 'none';
-    }
-});
+    // Mark complete
+    document.getElementById('markComplete').addEventListener('click', () => {
+        if (confirm('Mark this topic as complete?')) {
+            // TODO: Implement progress tracking
+            alert('Topic marked as complete!');
+            window.location.href = '/learning-plan{% if book_filename %}?book={{ book_filename }}{% endif %}';
+        }
+    });
 
-// Mark complete
-document.getElementById('markComplete').addEventListener('click', () => {
-    if (confirm('Mark this topic as complete?')) {
-        // TODO: Implement progress tracking
-        alert('Topic marked as complete!');
-        window.location.href = '/learning-plan';
+    // Handle Next Chapter button
+    const nextChapterBtn = document.getElementById('nextChapterBtn');
+    if (nextChapterBtn) {
+        nextChapterBtn.addEventListener('click', async function() {
+            const nextChapter = this.dataset.nextChapter;
+            const book = this.dataset.book;
+
+            // Disable button and show loading
+            this.disabled = true;
+            this.textContent = 'Loading...';
+
+            try {
+                // Load the next chapter to get the first topic
+                const url = `/api/chapter/${nextChapter}${book ? '?book=' + encodeURIComponent(book) : ''}`;
+                const response = await fetch(url);
+                const chapterData = await response.json();
+
+                if (response.ok && chapterData.topics && chapterData.topics.length > 0) {
+                    // Navigate to first topic of next chapter
+                    const firstTopicNum = chapterData.topics[0].topic_number;
+                    window.location.href = `/study/chapter/${nextChapter}/topic/${firstTopicNum}${book ? '?book=' + encodeURIComponent(book) : ''}`;
+                } else {
+                    alert('Could not load next chapter topics');
+                    this.disabled = false;
+                    this.textContent = 'Next Chapter →';
+                }
+            } catch (error) {
+                console.error('Error loading next chapter:', error);
+                alert('Failed to load next chapter');
+                this.disabled = false;
+                this.textContent = 'Next Chapter →';
+            }
+        });
     }
-});
 </script>
 {% endblock %}

@@ -36,6 +36,7 @@ class LLMClient:
         temperature: float = 0.7,
         max_tokens: int = 2000,
         stream: bool = False,
+        timeout: int = 600,
     ) -> str:
         """
         Send chat completion request to LLM.
@@ -45,6 +46,7 @@ class LLMClient:
             temperature: Sampling temperature (0-1)
             max_tokens: Maximum tokens in response
             stream: Whether to stream the response
+            timeout: Request timeout in seconds (default 600 = 10 minutes)
 
         Returns:
             Generated text response
@@ -58,12 +60,19 @@ class LLMClient:
         }
 
         try:
-            response = requests.post(self.chat_endpoint, json=payload, timeout=120)
+            print(
+                f"Sending request to {self.chat_endpoint} with model {self.model} (timeout: {timeout}s)"
+            )
+            response = requests.post(self.chat_endpoint, json=payload, timeout=timeout)
             response.raise_for_status()
 
             data = response.json()
             return data["choices"][0]["message"]["content"]
 
+        except requests.exceptions.Timeout as e:
+            error_msg = f"LLM API request timed out after {timeout} seconds"
+            print(error_msg)
+            raise Exception(error_msg)
         except requests.exceptions.RequestException as e:
             # Print more details for debugging
             error_msg = f"LLM API request failed: {e}"
@@ -73,9 +82,12 @@ class LLMClient:
                     error_msg += f"\nDetails: {error_details}"
                 except:
                     error_msg += f"\nResponse: {e.response.text}"
+            print(error_msg)
             raise Exception(error_msg)
         except (KeyError, IndexError) as e:
-            raise Exception(f"Invalid response format from LLM: {e}")
+            error_msg = f"Invalid response format from LLM: {e}"
+            print(error_msg)
+            raise Exception(error_msg)
 
     def simple_prompt(
         self,
@@ -83,6 +95,7 @@ class LLMClient:
         system_message: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: int = 2000,
+        timeout: int = 600,
     ) -> str:
         """
         Simple prompt completion (convenience method).
@@ -92,6 +105,7 @@ class LLMClient:
             system_message: Optional system message
             temperature: Sampling temperature
             max_tokens: Maximum tokens in response
+            timeout: Request timeout in seconds (default 600 = 10 minutes)
 
         Returns:
             Generated text response
@@ -103,7 +117,7 @@ class LLMClient:
 
         messages.append({"role": "user", "content": prompt})
 
-        return self.chat(messages, temperature, max_tokens)
+        return self.chat(messages, temperature, max_tokens, timeout=timeout)
 
     def test_connection(self) -> bool:
         """

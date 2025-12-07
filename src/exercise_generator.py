@@ -53,8 +53,10 @@ class ExerciseGenerator:
 
         print(f"Generating {num_exercises} exercises for topic: {topic['title']}")
 
+        # Use longer timeout for exercise generation (especially for 10+ exercises)
+        timeout = 600  # 10 minutes
         response = self.llm_client.simple_prompt(
-            prompt, temperature=0.7, max_tokens=3000
+            prompt, temperature=0.7, max_tokens=6000, timeout=timeout
         )
 
         exercises = self._parse_exercises_response(response)
@@ -126,41 +128,95 @@ Respond ONLY with the JSON array."""
         Returns:
             List of exercise dictionaries
         """
-        # Try to extract JSON from response
+        # Debug logging
+        print(f"\n{'=' * 60}")
+        print("LLM Response for exercises:")
+        print(f"{'=' * 60}")
+        print(response[:500] if len(response) > 500 else response)
+        if len(response) > 500:
+            print(f"... (truncated, total length: {len(response)} chars)")
+        print(f"{'=' * 60}\n")
+
+        exercises = None
+
+        # Strategy 1: Find JSON array with objects
         json_match = re.search(r"\[\s*\{.*\}\s*\]", response, re.DOTALL)
-
         if json_match:
-            json_str = json_match.group(0)
-        else:
-            json_str = response.strip()
+            try:
+                json_str = json_match.group(0)
+                # Clean up common issues
+                json_str = re.sub(r",\s*([}\]])", r"\1", json_str)
+                exercises = json.loads(json_str)
+            except json.JSONDecodeError as e:
+                print(f"Failed to parse JSON (strategy 1): {e}")
 
-        try:
-            exercises = json.loads(json_str)
-
-            if not isinstance(exercises, list):
-                raise ValueError("Response is not a list")
-
-            # Validate and normalize structure
-            for i, ex in enumerate(exercises, 1):
-                if "question" not in ex:
-                    raise ValueError(f"Exercise {i} missing 'question' field")
-
-                # Set defaults
-                if "exercise_number" not in ex:
-                    ex["exercise_number"] = i
-                if "type" not in ex:
-                    ex["type"] = "general"
-                if "hint" not in ex:
-                    ex["hint"] = ""
-                if "difficulty" not in ex:
-                    ex["difficulty"] = "medium"
-
-            return exercises
-
-        except json.JSONDecodeError as e:
-            raise ValueError(
-                f"Failed to parse exercises JSON: {e}\nResponse: {response}"
+        # Strategy 2: Try to find JSON in code blocks
+        if not exercises:
+            code_block_match = re.search(
+                r"```(?:json)?\s*(\[.*?\])\s*```", response, re.DOTALL
             )
+            if code_block_match:
+                try:
+                    json_str = code_block_match.group(1)
+                    json_str = re.sub(r",\s*([}\]])", r"\1", json_str)
+                    exercises = json.loads(json_str)
+                    print("Successfully parsed JSON from code block")
+                except json.JSONDecodeError as e:
+                    print(f"Failed to parse JSON (strategy 2): {e}")
+
+        # Strategy 3: Strip everything except JSON array
+        if not exercises:
+            try:
+                # Remove markdown, extra text, etc.
+                cleaned = re.sub(r"^[^\[]*", "", response)  # Remove before first [
+                cleaned = re.sub(r"[^\]]*$", "", cleaned)  # Remove after last ]
+                json_str = re.sub(r",\s*([}\]])", r"\1", cleaned)
+                exercises = json.loads(json_str)
+                print("Successfully parsed JSON (strategy 3)")
+            except (json.JSONDecodeError, Exception) as e:
+                print(f"Failed to parse JSON (strategy 3): {e}")
+
+        # Strategy 4: Just try to parse the whole response as-is
+        if not exercises:
+            try:
+                json_str = response.strip()
+                json_str = re.sub(r",\s*([}\]])", r"\1", json_str)
+                exercises = json.loads(json_str)
+                print("Successfully parsed JSON (strategy 4 - raw)")
+            except (json.JSONDecodeError, Exception) as e:
+                print(f"Failed to parse JSON (strategy 4): {e}")
+
+        if not exercises:
+            # If all parsing fails, print full response and raise error
+            print("\n" + "=" * 60)
+            print("FULL LLM RESPONSE (parsing failed):")
+            print("=" * 60)
+            print(response)
+            print("=" * 60 + "\n")
+            raise ValueError(
+                f"Failed to parse exercises JSON. Response length: {len(response)} chars. Check logs for full response."
+            )
+
+        # Validate it's a list
+        if not isinstance(exercises, list):
+            raise ValueError(f"Response is not a list, got: {type(exercises)}")
+
+        # Validate and normalize structure
+        for i, ex in enumerate(exercises, 1):
+            if "question" not in ex:
+                raise ValueError(f"Exercise {i} missing 'question' field")
+
+            # Set defaults
+            if "exercise_number" not in ex:
+                ex["exercise_number"] = i
+            if "type" not in ex:
+                ex["type"] = "general"
+            if "hint" not in ex:
+                ex["hint"] = ""
+            if "difficulty" not in ex:
+                ex["difficulty"] = "medium"
+
+        return exercises
 
     def generate_with_answers(
         self, topic: Dict, context: str, num_exercises: int = 5
@@ -219,11 +275,11 @@ Sample Answer:"""
 
         Returns:
             Dictionary with:
-            - is_correct: Whether answer is acceptable
-            - feedback: Detailed feedback
-            - suggestions: Areas for improvement
+            - is_correct: Boolean - whether answer is correct
+            - feedback: Brief feedback message
+            - solution: Full solution with explanation (markdown format)
         """
-        validation_prompt = f"""You are evaluating a student's answer.
+        validation_prompt = f"""You are evaluating a student's answer and providing the full solution.
 
 Question: {exercise["question"]}
 
@@ -233,46 +289,86 @@ Student's Answer:
 Reference Content:
 {context[:1500]}
 
-Evaluate the student's answer and provide:
-1. Whether the answer demonstrates understanding (yes/partially/no)
-2. What they got right
-3. What's missing or incorrect
-4. Suggestions for improvement
+Evaluate the student's answer and provide a complete response.
 
 Format as JSON:
 {{
-  "understanding": "yes/partially/no",
-  "strengths": "What the student understood well",
-  "weaknesses": "What's missing or needs improvement",
-  "feedback": "Encouraging, constructive feedback",
-  "suggestion": "How to improve their understanding"
+  "is_correct": true or false,
+  "feedback": "Brief encouraging feedback (1-2 sentences) about their answer",
+  "solution": "Complete solution with full explanation in markdown format. Include:\n- Whether their answer was correct or not\n- Step-by-step explanation\n- Key concepts involved\n- Additional insights if relevant"
 }}
 
-Be encouraging but honest. Focus on learning, not just correctness.
+Be encouraging and educational. The solution should teach, not just correct.
 
 Respond ONLY with the JSON object."""
 
         response = self.llm_client.simple_prompt(
-            validation_prompt, temperature=0.5, max_tokens=1000
+            validation_prompt, temperature=0.5, max_tokens=1500
         )
 
-        # Parse response
-        try:
-            json_match = re.search(r"\{.*\}", response, re.DOTALL)
-            if json_match:
-                result = json.loads(json_match.group(0))
-            else:
-                result = json.loads(response)
+        # Debug logging
+        print(f"\n{'=' * 60}")
+        print("LLM Response for validation:")
+        print(f"{'=' * 60}")
+        print(response[:500] if len(response) > 500 else response)
+        if len(response) > 500:
+            print(f"... (truncated, total length: {len(response)} chars)")
+        print(f"{'=' * 60}\n")
 
+        # Parse response - try multiple strategies
+        result = None
+
+        # Strategy 1: Find JSON object
+        json_match = re.search(r"\{.*\}", response, re.DOTALL)
+        if json_match:
+            try:
+                json_str = json_match.group(0)
+                json_str = re.sub(r",\s*([}\]])", r"\1", json_str)
+                result = json.loads(json_str)
+            except json.JSONDecodeError as e:
+                print(f"Failed to parse validation JSON (strategy 1): {e}")
+
+        # Strategy 2: Try to find JSON in code blocks
+        if not result:
+            code_block_match = re.search(
+                r"```(?:json)?\s*(\{.*?\})\s*```", response, re.DOTALL
+            )
+            if code_block_match:
+                try:
+                    json_str = code_block_match.group(1)
+                    json_str = re.sub(r",\s*([}\]])", r"\1", json_str)
+                    result = json.loads(json_str)
+                    print("Successfully parsed validation JSON from code block")
+                except json.JSONDecodeError as e:
+                    print(f"Failed to parse validation JSON (strategy 2): {e}")
+
+        # Strategy 3: Try raw response
+        if not result:
+            try:
+                json_str = response.strip()
+                json_str = re.sub(r",\s*([}\]])", r"\1", json_str)
+                result = json.loads(json_str)
+                print("Successfully parsed validation JSON (strategy 3)")
+            except json.JSONDecodeError as e:
+                print(f"Failed to parse validation JSON (strategy 3): {e}")
+
+        if result:
+            # Ensure required fields exist
+            if "is_correct" not in result:
+                result["is_correct"] = False
+            if "feedback" not in result:
+                result["feedback"] = "Answer submitted."
+            if "solution" not in result:
+                result["solution"] = "No solution available."
             return result
-        except:
+        else:
+            print(f"Error parsing validation response - all strategies failed")
+            print(f"Full response:\n{response}")
             # Fallback to simple response
             return {
-                "understanding": "unknown",
-                "strengths": "",
-                "weaknesses": "",
-                "feedback": response,
-                "suggestion": "",
+                "is_correct": False,
+                "feedback": "Unable to validate answer automatically.",
+                "solution": response,
             }
 
 

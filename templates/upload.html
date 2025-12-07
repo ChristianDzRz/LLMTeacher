@@ -1,113 +1,516 @@
-{% extends "base.html" %}
-
-{% block title %}Upload Book - Book Learning App{% endblock %}
-
-{% block content %}
-<div class="upload-section">
-    <h2>Upload Your Book</h2>
-    <p>Upload a PDF or EPUB file to create a personalized learning plan</p>
-
-    <div class="upload-box">
-        <form id="uploadForm" enctype="multipart/form-data">
-            <div class="file-input-wrapper">
-                <input type="file" id="bookFile" name="file" accept=".pdf,.epub" required>
-                <label for="bookFile" class="file-input-label">
-                    <span class="file-icon">📄</span>
-                    <span class="file-text">Choose a book (PDF or EPUB)</span>
-                </label>
-            </div>
-
-            <button type="submit" class="btn-primary">Upload and Process</button>
-        </form>
-    </div>
-
-    <div id="uploadStatus" class="status-message" style="display: none;">
-        <div class="loader"></div>
-        <p id="statusText">Processing your book...</p>
-    </div>
-
-    <div id="uploadError" class="error-message" style="display: none;"></div>
-</div>
-
-<div class="info-section">
-    <h3>How It Works</h3>
-    <ol>
-        <li><strong>Upload:</strong> Select a PDF or EPUB book</li>
-        <li><strong>Analysis:</strong> AI extracts key learning topics</li>
-        <li><strong>Study:</strong> Learn through conversational tutoring</li>
-        <li><strong>Practice:</strong> Reinforce with custom exercises</li>
-    </ol>
-</div>
-{% endblock %}
-
-{% block extra_js %}
-<script>
-document.getElementById('uploadForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-
-    const fileInput = document.getElementById('bookFile');
-    const file = fileInput.files[0];
-
-    if (!file) {
-        showError('Please select a file');
-        return;
-    }
-
-    const formData = new FormData();
-    formData.append('file', file);
-
-    // Show loading status
-    document.getElementById('uploadStatus').style.display = 'block';
-    document.getElementById('uploadError').style.display = 'none';
-    document.getElementById('statusText').textContent = 'Uploading and processing book...';
-
-    try {
-        const response = await fetch('/upload', {
-            method: 'POST',
-            body: formData
-        });
-
-        // Clone the response so we can read it multiple times if needed
-        const responseClone = response.clone();
-
-        let data;
-        try {
-            data = await response.json();
-        } catch (jsonError) {
-            // If response isn't JSON, try to get text from the clone
-            try {
-                const text = await responseClone.text();
-                showError('Server error: ' + (text.substring(0, 200) || 'Unknown error'));
-            } catch (textError) {
-                showError('Server error: Unable to read response');
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Book Upload - Book Learning App</title>
+        <link rel="stylesheet" href="/static/css/style.css" />
+        <style>
+            .progress-container {
+                display: none;
+                margin-top: 20px;
             }
-            return;
-        }
 
-        if (response.ok) {
-            document.getElementById('statusText').textContent = 'Book processed successfully! Redirecting...';
-            setTimeout(() => {
-                window.location.href = '/learning-plan';
-            }, 1500);
-        } else {
-            showError(data.error || 'Upload failed');
-        }
-    } catch (error) {
-        showError('Network error: ' + error.message);
-    }
-});
+            .progress-bar-wrapper {
+                background-color: #e0e0e0;
+                border-radius: 8px;
+                overflow: hidden;
+                height: 30px;
+                margin: 10px 0;
+            }
 
-function showError(message) {
-    const errorDiv = document.getElementById('uploadError');
-    errorDiv.textContent = message;
-    errorDiv.style.display = 'block';
-    document.getElementById('uploadStatus').style.display = 'none';
-}
+            .progress-bar {
+                background: linear-gradient(90deg, #4caf50, #45a049);
+                height: 100%;
+                width: 0%;
+                transition: width 0.3s ease;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: white;
+                font-weight: bold;
+                font-size: 14px;
+            }
 
-// File input visual feedback
-document.getElementById('bookFile').addEventListener('change', (e) => {
-    const fileName = e.target.files[0]?.name || 'Choose a book (PDF or EPUB)';
-    document.querySelector('.file-text').textContent = fileName;
-});
-</script>
-{% endblock %}
+            .progress-text {
+                margin: 10px 0;
+                font-size: 14px;
+                color: #333;
+            }
+
+            .chunk-info {
+                background-color: #f5f5f5;
+                padding: 10px;
+                border-radius: 4px;
+                margin-top: 10px;
+                font-size: 13px;
+                color: #666;
+            }
+
+            #toc {
+                width: 100%;
+                padding: 12px;
+                border: 1px solid #ddd;
+                border-radius: 6px;
+                font-family: monospace;
+                font-size: 14px;
+                resize: vertical;
+            }
+
+            #toc:focus {
+                border-color: #4a90e2;
+                outline: none;
+                box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.2);
+            }
+
+            .form-group .hint {
+                font-size: 12px;
+                color: #666;
+                margin-top: 5px;
+                font-style: italic;
+            }
+
+            .book-history {
+                margin-bottom: 2rem;
+            }
+
+            .book-list {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+                gap: 1rem;
+                margin-top: 1rem;
+            }
+
+            .book-card {
+                background: white;
+                border: 2px solid #dee2e6;
+                border-radius: 10px;
+                padding: 1.25rem;
+                cursor: pointer;
+                transition: all 0.3s;
+            }
+
+            .book-card:hover {
+                border-color: #4a90e2;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+                transform: translateY(-2px);
+            }
+
+            .book-card h4 {
+                margin: 0 0 0.5rem 0;
+                color: #2c3e50;
+                font-size: 1rem;
+                line-height: 1.4;
+            }
+
+            .book-card .book-meta {
+                font-size: 0.85rem;
+                color: #666;
+            }
+
+            .book-card .book-meta span {
+                margin-right: 1rem;
+            }
+        </style>
+    </head>
+    <body>
+        <header>
+            <div class="container">
+                <h1>📚 Book Learning App</h1>
+                <nav>
+                    <a href="/">Home</a>
+                    <a href="/learning-plan">Learning Plan</a>
+                </nav>
+            </div>
+        </header>
+
+        <main>
+            <div class="container">
+                <!-- Previously Processed Books -->
+                <div
+                    id="bookHistory"
+                    class="book-history"
+                    style="display: none"
+                >
+                    <h2>Your Books</h2>
+                    <p>Continue learning from a previously processed book</p>
+                    <div id="bookList" class="book-list"></div>
+                    <hr style="margin: 2rem 0" />
+                </div>
+
+                <h2>Upload a New Book</h2>
+                <p>Upload a PDF or EPUB file to generate a learning plan</p>
+
+                <form id="uploadForm">
+                    <div class="form-group">
+                        <label for="file">Select Book:</label>
+                        <input
+                            type="file"
+                            id="file"
+                            name="file"
+                            accept=".pdf,.epub"
+                            required
+                        />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="processingModel">Processing Model:</label>
+                        <select id="processingModel" name="processingModel">
+                            <optgroup label="Ollama (localhost:11434)">
+                                <option value="llama3.2-gpu">
+                                    Llama 3.2 GPU (3.2B) - Default
+                                </option>
+                                <option value="llama3.2:3b">
+                                    Llama 3.2 (3B)
+                                </option>
+                                <option value="llama3:8b">Llama 3 (8B)</option>
+                                <option value="llama3:latest">
+                                    Llama 3 Latest (8B)
+                                </option>
+                            </optgroup>
+                            <optgroup label="LM Studio (localhost:1234)">
+                                <!-- Populated dynamically -->
+                            </optgroup>
+                            <option value="custom">Custom Model</option>
+                        </select>
+                        <input
+                            type="text"
+                            id="customProcessingModel"
+                            name="customProcessingModel"
+                            placeholder="Enter model name"
+                            style="display: none; margin-top: 8px"
+                        />
+                        <p class="hint" id="processingModelHint">
+                            Select the model for analyzing and extracting topics
+                            from your book.
+                        </p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="toc"
+                            >Table of Contents (Optional - helps with EPUB
+                            files):</label
+                        >
+                        <textarea
+                            id="toc"
+                            name="toc"
+                            rows="10"
+                            placeholder="Paste the table of contents here. Example:
+
+Chapter 1: Introduction ............ 1
+Chapter 2: Getting Started ......... 15
+Chapter 3: Basic Concepts .......... 42
+
+Or simply:
+
+1. Introduction
+2. Getting Started
+3. Basic Concepts
+..."
+                        ></textarea>
+                        <p class="hint">
+                            Tip: Copy the TOC from your book or Amazon/publisher
+                            page for better chapter detection.
+                        </p>
+                    </div>
+
+                    <button type="submit" class="btn">Upload & Process</button>
+                </form>
+
+                <!-- Progress Container -->
+                <div class="progress-container" id="progressContainer">
+                    <h3>Processing Book...</h3>
+                    <div class="progress-bar-wrapper">
+                        <div class="progress-bar" id="progressBar">
+                            <span id="progressText">0%</span>
+                        </div>
+                    </div>
+                    <div class="progress-text">
+                        <p id="statusText">Preparing to process...</p>
+                        <div class="chunk-info" id="chunkInfo">
+                            Waiting to start processing chunks...
+                        </div>
+                    </div>
+                </div>
+
+                <div id="message"></div>
+            </div>
+        </main>
+
+        <footer>
+            <p>&copy; 2024 Book Learning App. All rights reserved.</p>
+        </footer>
+
+        <script>
+            const form = document.getElementById("uploadForm");
+            const messageDiv = document.getElementById("message");
+            const progressContainer =
+                document.getElementById("progressContainer");
+            const progressBar = document.getElementById("progressBar");
+            const progressText = document.getElementById("progressText");
+            const statusText = document.getElementById("statusText");
+            const chunkInfo = document.getElementById("chunkInfo");
+
+            // Load previously processed books
+            async function loadBookHistory() {
+                try {
+                    const response = await fetch("/api/processed-books");
+                    const data = await response.json();
+
+                    if (data.books && data.books.length > 0) {
+                        const bookHistory =
+                            document.getElementById("bookHistory");
+                        const bookList = document.getElementById("bookList");
+
+                        bookList.innerHTML = data.books
+                            .map(
+                                (book) => `
+                            <div class="book-card" onclick="loadBook('${book.folder_name}')">
+                                <h4>${book.title}</h4>
+                                ${book.author ? `<p style="font-size: 0.85rem; color: #888; margin: 0.25rem 0;">by ${book.author}</p>` : ""}
+                                <div class="book-meta">
+                                    <span>${book.chapter_count} chapters</span>
+                                    <span>${Math.round(book.word_count / 1000)}k words</span>
+                                </div>
+                            </div>
+                        `,
+                            )
+                            .join("");
+
+                        bookHistory.style.display = "block";
+                    }
+                } catch (error) {
+                    console.log("Could not load book history:", error);
+                }
+            }
+
+            function loadBook(folderName) {
+                window.location.href =
+                    "/learning-plan?book=" + encodeURIComponent(folderName);
+            }
+
+            // Load book history on page load
+            loadBookHistory();
+
+            // Load available models
+            async function loadAvailableModels() {
+                try {
+                    const response = await fetch("/api/available-models");
+                    const data = await response.json();
+
+                    const modelSelect =
+                        document.getElementById("processingModel");
+                    const hint = document.getElementById("processingModelHint");
+
+                    // Clear and rebuild
+                    modelSelect.innerHTML = "";
+
+                    // Add Ollama models
+                    if (data.ollama_available && data.ollama.length > 0) {
+                        const ollamaGroup = document.createElement("optgroup");
+                        ollamaGroup.label = "Ollama (localhost:11434)";
+
+                        data.ollama.forEach((model, index) => {
+                            const option = document.createElement("option");
+                            option.value = model.name;
+                            const paramSize = model.parameter_size
+                                ? ` (${model.parameter_size})`
+                                : "";
+                            option.textContent = `${model.name}${paramSize}${index === 0 ? " - Default" : ""}`;
+                            ollamaGroup.appendChild(option);
+                        });
+
+                        modelSelect.appendChild(ollamaGroup);
+                    }
+
+                    // Add LM Studio models
+                    if (data.lm_studio_available && data.lm_studio.length > 0) {
+                        const lmGroup = document.createElement("optgroup");
+                        lmGroup.label = "LM Studio (localhost:1234)";
+
+                        data.lm_studio.forEach((model) => {
+                            const option = document.createElement("option");
+                            option.value = model.id;
+                            option.textContent = model.name || model.id;
+                            lmGroup.appendChild(option);
+                        });
+
+                        modelSelect.appendChild(lmGroup);
+                    }
+
+                    // Add custom option
+                    const customOption = document.createElement("option");
+                    customOption.value = "custom";
+                    customOption.textContent = "Custom Model";
+                    modelSelect.appendChild(customOption);
+
+                    // Update hint with availability
+                    let availMsg = [];
+                    if (data.ollama_available) availMsg.push("Ollama");
+                    if (data.lm_studio_available) availMsg.push("LM Studio");
+
+                    if (availMsg.length > 0) {
+                        hint.textContent = `Available: ${availMsg.join(", ")}. Select the model for analyzing your book.`;
+                        hint.style.color = "#28a745";
+                    } else {
+                        hint.textContent =
+                            "No model servers detected. Make sure Ollama or LM Studio is running.";
+                        hint.style.color = "#dc3545";
+                    }
+                } catch (error) {
+                    console.error("Could not load available models:", error);
+                }
+            }
+
+            loadAvailableModels();
+
+            // Handle custom model input toggle
+            document
+                .getElementById("processingModel")
+                .addEventListener("change", function () {
+                    const customInput = document.getElementById(
+                        "customProcessingModel",
+                    );
+                    if (this.value === "custom") {
+                        customInput.style.display = "block";
+                        customInput.required = true;
+                    } else {
+                        customInput.style.display = "none";
+                        customInput.required = false;
+                        customInput.value = "";
+                    }
+                });
+
+            form.addEventListener("submit", async (e) => {
+                e.preventDefault();
+
+                const fileInput = document.getElementById("file");
+                const file = fileInput.files[0];
+
+                if (!file) {
+                    messageDiv.innerHTML =
+                        '<div class="error">Please select a file</div>';
+                    return;
+                }
+
+                // Show progress container
+                progressContainer.style.display = "block";
+                messageDiv.innerHTML = "";
+
+                const formData = new FormData();
+                formData.append("file", file);
+
+                // Include processing provider and model
+                const processingModelSelect =
+                    document.getElementById("processingModel");
+                let processingModel = processingModelSelect.value;
+                let processingProvider = "";
+
+                if (processingModel === "custom") {
+                    processingModel = document
+                        .getElementById("customProcessingModel")
+                        .value.trim();
+                } else {
+                    // Determine provider from selected optgroup
+                    const selectedOption =
+                        processingModelSelect.options[
+                            processingModelSelect.selectedIndex
+                        ];
+                    const optgroup = selectedOption.parentElement;
+                    if (optgroup.tagName === "OPTGROUP") {
+                        if (optgroup.label.includes("LM Studio")) {
+                            processingProvider = "lmstudio";
+                        } else if (optgroup.label.includes("Ollama")) {
+                            processingProvider = "ollama";
+                        }
+                    }
+                }
+
+                if (processingProvider) {
+                    formData.append("processing_provider", processingProvider);
+                }
+                formData.append("processing_model", processingModel);
+
+                // Include TOC if provided
+                const tocInput = document.getElementById("toc");
+                if (tocInput.value.trim()) {
+                    formData.append("toc", tocInput.value.trim());
+                }
+
+                try {
+                    const response = await fetch("/upload", {
+                        method: "POST",
+                        body: formData,
+                    });
+
+                    const data = await response.json();
+
+                    if (response.ok) {
+                        // Start monitoring progress
+                        monitorProgress();
+                    } else {
+                        messageDiv.innerHTML = `<div class="error">Error: ${data.error}</div>`;
+                        progressContainer.style.display = "none";
+                    }
+                } catch (error) {
+                    messageDiv.innerHTML = `<div class="error">Upload failed: ${error.message}</div>`;
+                    progressContainer.style.display = "none";
+                }
+            });
+
+            async function monitorProgress() {
+                let lastChunk = 0;
+                let isComplete = false;
+
+                const progressInterval = setInterval(async () => {
+                    try {
+                        const response = await fetch("/api/processing-status");
+                        const data = await response.json();
+
+                        // Parse progress from filename or status
+                        let progress = data.progress || 0;
+
+                        // Update progress bar
+                        progressBar.style.width = progress + "%";
+                        progressText.textContent = progress + "%";
+
+                        if (data.status === "complete") {
+                            progressBar.style.width = "100%";
+                            progressText.textContent = "100%";
+                            statusText.textContent =
+                                "Processing complete! Redirecting to learning plan...";
+                            chunkInfo.textContent =
+                                "All chunks processed successfully!";
+
+                            clearInterval(progressInterval);
+
+                            // Redirect after 2 seconds to the specific book
+                            setTimeout(() => {
+                                const bookFolder = data.folder;
+                                if (bookFolder) {
+                                    window.location.href = `/learning-plan?book=${encodeURIComponent(bookFolder)}`;
+                                } else {
+                                    window.location.href = "/learning-plan";
+                                }
+                            }, 2000);
+                        } else {
+                            statusText.textContent = `Status: ${data.status}`;
+                            // Show book folder name if available, otherwise upload filename
+                            const bookInfo =
+                                data.folder ||
+                                data.upload_filename ||
+                                data.file ||
+                                "Book";
+                            const messageInfo = data.message
+                                ? ` - ${data.message}`
+                                : "";
+                            chunkInfo.textContent = `Processing: ${bookInfo}${messageInfo}`;
+                        }
+                    } catch (error) {
+                        console.log("Monitoring progress:", error);
+                    }
+                }, 2000); // Check every 2 seconds
+            }
+        </script>
+    </body>
+</html>

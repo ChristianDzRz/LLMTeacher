@@ -4,6 +4,7 @@ Topic extractor for analyzing books and generating learning plans.
 
 import json
 import re
+import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -23,6 +24,48 @@ class TopicExtractor:
             llm_client: LLM client instance (creates new one if not provided)
         """
         self.llm_client = llm_client or LLMClient()
+        self.progress_file = None
+
+    def _write_progress(self, current: int, total: int, message: str = ""):
+        """Write progress to a temporary file for frontend polling."""
+        if not self.progress_file:
+            return
+
+        try:
+            progress = int((current / total) * 100) if total > 0 else 0
+            progress_data = {
+                "progress": progress,
+                "current": current,
+                "total": total,
+                "message": message,
+            }
+            with open(self.progress_file, "w") as f:
+                json.dump(progress_data, f)
+        except Exception as e:
+            # Silently fail progress writing - don't interrupt processing
+            pass
+
+    def _generate_topic_summary(self, topic: Dict, context: str) -> str:
+        """Generate a detailed summary for a topic based on context."""
+        summary_prompt = f"""Topic: {topic["title"]}
+
+Description: {topic.get("description", "")}
+
+Content:
+{context[:2000]}
+
+Create a concise but comprehensive summary of this topic that:
+1. Explains what students will learn
+2. Highlights the 3-5 most important concepts
+3. Explains why this is important in the broader context
+4. Suggests practical applications or real-world relevance
+
+Summary (2-4 sentences, focused and informative):"""
+
+        response = self.llm_client.simple_prompt(
+            summary_prompt, temperature=0.4, max_tokens=300
+        )
+        return response.strip()
 
     @staticmethod
     def chunk_text(
@@ -89,9 +132,7 @@ class TopicExtractor:
         # DISABLED: Automatic chapter detection creates too many false positives
         # Only use chapters if there are 3-20 of them (reasonable chapter count)
         if chapters and 3 <= len(chapters) <= 20:
-            print(
-                f"Book has {len(chapters)} chapters, processing by chapter..."
-            )
+            print(f"Book has {len(chapters)} chapters, processing by chapter...")
             return self._extract_topics_from_chapters(chapters, book_title)
         elif chapters and len(chapters) > 20:
             print(
@@ -281,7 +322,10 @@ class TopicExtractor:
         failed_chunks = []
 
         for i, chunk in enumerate(chunks, 1):
-            print(f"Processing chunk {i}/{len(chunks)}...")
+            progress = int((i / len(chunks)) * 100)
+            msg = f"Processing chunk {i}/{len(chunks)}"
+            print(f"[Progress: {progress}%] {msg}...")
+            self._write_progress(i, len(chunks), msg)
 
             try:
                 chunk_topics = self._extract_topics_single(
@@ -289,22 +333,28 @@ class TopicExtractor:
                 )
                 all_chunk_topics.extend(chunk_topics)
             except Exception as e:
-                print(f"  ⚠️  ERROR processing chunk {i}/{len(chunks)}: {e}")
-                print(f"  → Continuing with remaining chunks...")
+                print(f"  ERROR processing chunk {i}/{len(chunks)}: {e}")
+                print(f"  Continuing with remaining chunks...")
                 failed_chunks.append(i)
                 continue
 
         # Report failures
         if failed_chunks:
-            print(f"\nWarning: {len(failed_chunks)}/{len(chunks)} chunks failed to process")
+            print(
+                f"\nWarning: {len(failed_chunks)}/{len(chunks)} chunks failed to process"
+            )
             print(f"  Failed chunks: {', '.join(map(str, failed_chunks))}")
-            print(f"  Successfully processed: {len(chunks) - len(failed_chunks)}/{len(chunks)} chunks")
+            print(
+                f"  Successfully processed: {len(chunks) - len(failed_chunks)}/{len(chunks)} chunks"
+            )
         else:
             print(f"\nAll {len(chunks)} chunks processed successfully!")
 
         # Check if we got any topics at all
         if not all_chunk_topics:
-            raise Exception(f"Failed to extract topics from any chunks. All {len(chunks)} chunks failed.")
+            raise Exception(
+                f"Failed to extract topics from any chunks. All {len(chunks)} chunks failed."
+            )
 
         # Merge and refine topics
         print("Merging topics from all chunks...")
@@ -473,13 +523,16 @@ Respond ONLY with the JSON array."""
         except json.JSONDecodeError as e:
             raise ValueError(f"Failed to parse topics JSON: {e}\nResponse: {response}")
 
-    def process_book(self, book_path: str, output_dir: str = None) -> Dict:
+    def process_book(
+        self, book_path: str, output_dir: str = None, toc_text: str = None
+    ) -> Dict:
         """
         Process a book: parse, extract topics, save results.
 
         Args:
             book_path: Path to book file (PDF/EPUB)
             output_dir: Directory to save processed data (defaults to config.PROCESSED_FOLDER)
+            toc_text: Optional user-provided table of contents text
 
         Returns:
             Dictionary with:
@@ -488,22 +541,66 @@ Respond ONLY with the JSON array."""
             - content: Full book text
         """
         import config
+        from src.toc_parser import TOCParser
 
         output_dir = Path(output_dir or config.PROCESSED_FOLDER)
         output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Set up progress file for frontend polling
+        self.progress_file = (
+            Path(tempfile.gettempdir()) / "book_processing_progress.json"
+        )
 
         # Parse book
         print(f"Parsing book: {book_path}")
         book_data = DocumentParser.parse(book_path)
 
-        # Extract topics (using chapters if available)
-        chapters = book_data.get("chapters", [])
-        if chapters:
-            print(f"Found {len(chapters)} chapters in the book")
+        # Use user-provided TOC if available, otherwise use auto-detected chapters
+        chapters = []
+        if toc_text:
+            print("Using user-provided Table of Contents...")
+            parsed_toc = TOCParser.parse(toc_text)
+            if parsed_toc:
+                print(f"Parsed {len(parsed_toc)} chapters from TOC")
+                # Match TOC chapters with book content
+                chapters = TOCParser.match_content_to_chapters(
+                    book_data["content"], parsed_toc
+                )
+                print(f"Matched {len(chapters)} chapters with book content")
+
+        # Fall back to auto-detected chapters if no TOC provided or parsing failed
+        if not chapters:
+            chapters = book_data.get("chapters", [])
+            if chapters:
+                print(f"Using auto-detected {len(chapters)} chapters from book")
 
         topics = self.extract_topics(
             book_data["content"], book_data["title"], chapters=chapters
         )
+
+        # Load contexts for generating summaries
+        from src.context_manager import ContextManager
+
+        context_manager = ContextManager()
+        contexts = context_manager.build_topic_contexts(
+            topics, book_data["content"], use_llm=False
+        )
+
+        # Enhance topics with summaries
+        print("Generating topic summaries...")
+        for topic in topics:
+            topic_num = str(topic["topic_number"])
+            context = contexts.get(topic_num, {}).get("context", "")
+
+            if context:
+                try:
+                    summary = self._generate_topic_summary(topic, context)
+                    topic["summary"] = summary
+                except Exception as e:
+                    print(f"Could not generate summary for {topic['title']}: {e}")
+                    topic["summary"] = topic.get("description", "")
+            else:
+                topic["summary"] = topic.get("description", "")
 
         # Create output structure
         result = {
@@ -513,8 +610,10 @@ Respond ONLY with the JSON array."""
                 "metadata": book_data.get("metadata", {}),
                 "word_count": len(book_data["content"].split()),
                 "page_count": book_data.get("page_count", 0),
+                "topic_count": len(topics),
             },
             "topics": topics,
+            "contexts": contexts,
             "content": book_data["content"],
         }
 
